@@ -4,6 +4,14 @@ Address symbolization C library in a single file.
 
 ### usage
 
+clone this repository
+
+```bash
+git clone https://github.com/Sberm/sym.h.git
+```
+
+sample code 
+
 ```c
 /* include this header file */
 #include "sym.h"
@@ -24,7 +32,7 @@ char ksym[128];
 char usym[128];
 
 ksym_addr_to_sym(usym_tb, 0xffffffff9a143183, ksym);
-usym_addr_to_sym(usym_tb, 0x55e8c4de0ef7, usym);
+usym_addr_to_sym(ksym_tb, 0x55e8c4de0ef7, usym);
 
 /* result */
 printf("%s\n", ksym); // do_filp_open+0x93
