@@ -5,6 +5,9 @@ Address symbolization C library in a single file.
 ### usage
 
 ```c
+/* include this header file */
+#include "sym.h"
+
 /* pids to fetch symbols from(for user space symbols)*/
 int pids[] = {32930, 1132, 328};
 int num_of_pids = 3;
