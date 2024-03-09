@@ -13,7 +13,7 @@ int num_of_pids = 3;
 /* symbol table loading */
 /* kernel symbol table */
 const struct ksyms* ksym_tb = ksym_load();
-/* user symbol table, for sets of pid */
+/* user symbol table, of certain pids */
 const struct usyms* usym_tb = usym_load(pids, num_of_pids);
 
 /* symbolization */
