@@ -78,6 +78,7 @@ int usym_addr_to_sym(const struct usyms *usym_tb, const unsigned long long addr,
 
 int dso_load(struct dso *dso_p);
 int dso_free(struct dso *dso_p);
+int dso_find(const struct usyms* usym_tb, unsigned long long start_addr);
 int elf_parse(FILE *fp, struct dso *dso_p);
 
 /* Definition */
@@ -354,6 +355,9 @@ const struct usyms* usym_load(const int *pids, int length)
 				last_dso->end_addr = end_addr;
 				continue;
 			}
+			/* duplicated dsos from different pids */
+			if (dso_find(usym_tb, start_addr) != -1)
+				continue;
 			strcpy(last_path, path);
 			err = usym_add(usym_tb, path, start_addr, end_addr, offset);
 			if (err) {
@@ -394,32 +398,13 @@ int usym_addr_to_sym(const struct usyms *usym_tb, const unsigned long long addr,
 	int high = usym_tb->length - 1;
 	int middle;
 	int max_high = high;
-	unsigned long long s_addr, e_addr, middle_addr;
-	unsigned long long res_offset = 0;
+	unsigned long long middle_addr, res_offset = 0;
 
-	if (max_high >= 0 && addr < usym_tb->dsos[0].start_addr)
+	/* low is the index of the dso we want */
+	low = dso_find(usym_tb, addr);
+
+	if (low == -1)
 		goto usym_unknown;
-
-	if (max_high >= 0 && addr > usym_tb->dsos[usym_tb->length - 1].end_addr)
-		goto usym_unknown;
-
-	/* find the right dso */
-	while (low < high) {
-		middle = (low + high) / 2;
-		s_addr = usym_tb->dsos[middle].start_addr;
-		e_addr = usym_tb->dsos[middle].end_addr;
-		if (addr < s_addr) {
-			high = middle - 1;
-		} else if (addr > e_addr) {
-			low = middle + 1;
-		} else if (addr > s_addr && addr < e_addr) {
-			low = middle;
-			break;
-		}
-
-		if (low > max_high || high < 0)
-			goto usym_unknown;
-	}
 
 	/* low is the dso index we dive into */
 	unsigned long long dso_offset = usym_tb->dsos[low].start_addr;
@@ -521,6 +506,16 @@ int dso_free(struct dso *dso_p)
 	free(dso_p->sym);
 	dso_p->sym = NULL;
 	return 0;
+}
+
+int dso_find(const struct usyms* usym_tb, unsigned long long addr) {
+	if (usym_tb->length == 0)
+		return -1;
+	for (int i = 0;i < usym_tb->length; i++) {
+		if (usym_tb->dsos[i].start_addr <= addr && addr <= usym_tb->dsos[i].end_addr)
+			return i;
+	}
+	return -1;
 }
 
 int elf_parse(FILE *fp, struct dso *dso_p)
