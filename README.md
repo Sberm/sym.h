@@ -32,8 +32,8 @@ ksym_addr_to_sym(ksym_tb, 0xffffffff9a143183, ksym);
 usym_addr_to_sym(usym_tb, 0x55e8c4de0ef7, usym);
 
 /* result */
-printf("%s\n", ksym); // do_filp_open+0x93
-printf("%s\n", usym); // ngx_hash_init+0x2b7
+printf("%s\n", ksym); // do_filp_open
+printf("%s\n", usym); // ngx_hash_init
 
 /* free symbol table's memory */
 ksym_free(ksym_tb);

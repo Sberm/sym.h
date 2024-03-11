@@ -264,7 +264,12 @@ int ksym_addr_to_sym(const struct ksyms *ksym_tb, unsigned long long addr, char 
 	}
 
 	char res[128];
-	res_offset == 0 ? sprintf(res, "%s",ksym_tb->sym[low].name) : sprintf(res, "%s+0x%llx", ksym_tb->sym[low].name, res_offset);
+
+	// TODO: could be used in certain circumstances
+	/* with offset */
+	// res_offset == 0 ? sprintf(res, "%s",ksym_tb->sym[low].name) : sprintf(res, "%s+0x%llx", ksym_tb->sym[low].name, res_offset);
+
+	sprintf(res, "%s",ksym_tb->sym[low].name);
 
 	strcpy(str, res);
 	return 0;
