@@ -21,8 +21,8 @@ int pids[] = {32930, 1132, 328};
 int num_of_pids = 3;
 
 /* symbol table loading */
-const struct ksyms* ksym_tb = ksym_load(); // kernel symbol table
-const struct usyms* usym_tb = usym_load(pids, num_of_pids); // user symbol table, of certain pids
+struct ksyms* ksym_tb = ksym_load(); // kernel symbol table
+struct usyms* usym_tb = usym_load(pids, num_of_pids); // user symbol table, of certain pids
 
 /* symbolization */
 char ksym[128];
