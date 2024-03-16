@@ -35,6 +35,17 @@ usym_addr_to_sym(usym_tb, 0x55e8c4de0ef7, usym);
 printf("%s\n", ksym); // do_filp_open
 printf("%s\n", usym); // ngx_hash_init
 
+
+char sym[128];
+unsigned long addr = 0xffffffff9a143183;
+/* 
+ * addr_to_sym simplifies the process to one function call
+ * it will detect whether the symbol is from user space or kernel
+ */
+addr_to_sym(ksym_tb, usym_tb, addr, sym);
+printf("%s\n", sym);
+
+
 /* free symbol table's memory */
 ksym_free(ksym_tb);
 usym_free(usym_tb);
