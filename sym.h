@@ -1,5 +1,5 @@
 /*-*- coding:utf-8                                                          -*-│
-│vi: set net ft=c ts=4 sts=4 sw=4 fenc=utf-8                                :vi│
+│vi: set ft=c ts=8 sts=8 sw=8 fenc=utf-8                                    :vi│
 ╞══════════════════════════════════════════════════════════════════════════════╡
 │ Copyright 2024 Howard Chu                                                    │
 │                                                                              │
@@ -29,39 +29,37 @@
 
 #define SYM_UNKNOWN 1
 
+#define USYM_MIN_ALLOC 128
+
 #ifndef ARRAY_LEN
 #define ARRAY_LEN(x) (sizeof(x) / sizeof((x)[0]))
 #endif
 
-struct ksym {
+struct sym_map {
 	unsigned long long addr;
 	char name[128];
 }; 
 
 struct ksyms {
-	struct ksym* sym;
-	int length;
+	struct sym_map *sym;
+	unsigned int length;
 };
-
-/* Unbelievably similar to ksym */
-struct dso_sym {
-	unsigned long long addr;
-	char name[128];
-}; 
 
 struct dso {
 	unsigned long long start_addr;
 	unsigned long long end_addr;
 	unsigned long offset;
 	char path[1024];
-	struct dso_sym *sym;
-	/* dso_sym's length */
-	int length;
+	struct sym_map *sym;
+	/* sym map's length */
+	unsigned int length;
+	unsigned int capacity;
 };
 
 struct usyms {
 	struct dso *dsos;
-	int length;
+	unsigned int length;
+	unsigned int capacity;
 };
 
 int addr_to_sym(const struct ksyms *ksym_tb, const struct usyms *usym_tb, const unsigned long long addr, char *str);
@@ -116,9 +114,9 @@ int addr_to_sym(const struct ksyms *ksym_tb, const struct usyms *usym_tb, const 
 // TODO is it good to cast long long to int?
 static int dso_compar(const void *a, const void *b)
 {
-	struct dso_sym *ap, *bp;
-	ap = (struct dso_sym*)a;
-	bp = (struct dso_sym*)b;
+	struct sym_map *ap, *bp;
+	ap = (struct sym_map*)a;
+	bp = (struct sym_map*)b;
 
 	long long res = (long long)ap->addr - (long long)bp->addr;
 	if (res < 0)
@@ -132,8 +130,8 @@ static int dso_compar(const void *a, const void *b)
 static int ksym_compar(const void *a, const void *b)
 {
 	unsigned long long a_addr, b_addr;
-	a_addr = ((struct ksym*)a)->addr;
-	b_addr = ((struct ksym*)b)->addr;
+	a_addr = ((struct sym_map*)a)->addr;
+	b_addr = ((struct sym_map*)b)->addr;
 
 	// just incase
 	if (a_addr >= 0xf000000000000000 && b_addr >= 0xf000000000000000) {
@@ -189,7 +187,7 @@ int ksym_init(struct ksyms *ksym_tb, const int length)
 		goto sym_init_cleanup;
 
 	ksym_tb->length = length;
-	ksym_tb->sym = malloc(sizeof(struct ksym) * length);
+	ksym_tb->sym = malloc(sizeof(struct sym_map) * length);
 	if (ksym_tb->sym != NULL)
 		return 0;
 
@@ -232,7 +230,7 @@ struct ksyms* ksym_load()
 	}
 
 	// sort kernel symbols
-	qsort(ksym_tb->sym, ksym_tb->length, sizeof(struct ksym), ksym_compar);
+	qsort(ksym_tb->sym, ksym_tb->length, sizeof(struct sym_map), ksym_compar);
 
 	fclose(fp);
 	return ksym_tb;
@@ -310,10 +308,13 @@ ksym_unknown:
 
 int usym_init(struct usyms *usym_tb) 
 {
-	usym_tb->dsos = NULL;
-	usym_tb->length = 0;
 	if (usym_tb == NULL)
 		return -1;
+
+	usym_tb->dsos = NULL;
+	usym_tb->length = 0;
+	usym_tb->capacity = 0;
+
 	return 0;
 }
 
@@ -321,12 +322,24 @@ int usym_add(struct usyms *usym_tb, const char *path,
              const unsigned long long start_addr, const unsigned long long end_addr,
 			 const unsigned long offset)
 {
-	void *p = realloc(usym_tb->dsos, sizeof(struct dso) * (usym_tb->length + 1));
-	if (p == NULL) {
-		printf("Failed to reallocate userspace symbol table\n");
-		return -1;
+	if (usym_tb->dsos && usym_tb->length + 1 > usym_tb->capacity) {
+		/* 128 -> 256 */
+		unsigned int to_alloc = usym_tb->capacity * 2;
+		usym_tb->dsos = realloc(usym_tb->dsos, sizeof(struct dso) * to_alloc);
+		if (usym_tb->dsos == NULL) {
+			printf("Failed to reallocate userspace symbol table\n");
+			return -1;
+		}
+		usym_tb->capacity = to_alloc;
+
+	} else if (usym_tb->dsos == NULL){ // first dso 
+		usym_tb->dsos = malloc(sizeof(struct dso) * USYM_MIN_ALLOC);
+		if (usym_tb->dsos == NULL) {
+			printf("Failed to reallocate userspace symbol table\n");
+			return -1;
+		}
+		usym_tb->capacity = USYM_MIN_ALLOC;
 	}
-	usym_tb->dsos = p;
 
 	struct dso dso_ = {
 		.start_addr = start_addr,
@@ -336,9 +349,9 @@ int usym_add(struct usyms *usym_tb, const char *path,
 	};
 	usym_tb->dsos[usym_tb->length] = dso_;
 	struct dso *dso_p = &usym_tb->dsos[usym_tb->length];
-	++usym_tb->length;
 	/* copy the path after assignment */
 	strcpy(dso_p->path, path);
+	++usym_tb->length;
 
 	if (dso_load(dso_p)) {
 		printf("Failed to load dso %s\n", dso_p->path);
@@ -346,7 +359,7 @@ int usym_add(struct usyms *usym_tb, const char *path,
 	}
 
 	// sort dso
-	qsort(dso_p->sym, dso_p->length, sizeof(struct dso_sym), dso_compar);
+	qsort(dso_p->sym, dso_p->length, sizeof(struct sym_map), dso_compar);
 
 	return 0;
 }
@@ -355,7 +368,7 @@ struct usyms* usym_load(const int *pids, int length)
 {
 	struct usyms *usym_tb = malloc(sizeof(struct usyms));
 	usym_init(usym_tb);
-	FILE* fp;
+	FILE* fp = NULL;
 	char maps_path[256];
 	int index, err;
 	unsigned long long start_addr, end_addr;
@@ -369,6 +382,8 @@ struct usyms* usym_load(const int *pids, int length)
 		/* read maps of process to get all dso */
 		sprintf(maps_path, "/proc/%d/maps", pids[i]);
 		fp = fopen(maps_path, "r");
+		if (fp == NULL)
+			continue;
 
 		index = 0;
 		while (1) {
@@ -401,11 +416,13 @@ struct usyms* usym_load(const int *pids, int length)
 		}
 	}
 
-	fclose(fp);
+	if (fp != NULL)
+		fclose(fp);
 	return usym_tb;
 
 usym_load_cleanup:
-	fclose(fp);
+	if (fp != NULL)
+		fclose(fp);
 	usym_free(usym_tb);
 	free(usym_tb);
 	usym_tb = NULL;
@@ -420,6 +437,7 @@ int usym_free(struct usyms *usym_tb)
 			exit(-1);
 		}
 	}
+
 	free(usym_tb->dsos);
 	usym_tb->dsos = NULL;
 	return 0;
@@ -488,6 +506,7 @@ int usym_addr_to_sym(const struct usyms *usym_tb, const unsigned long long addr,
 	return 0;
 
 usym_unknown:
+	strcpy(str, "[unknown]");
 	return SYM_UNKNOWN;
 }
 
@@ -507,8 +526,8 @@ int dso_load(struct dso *dso_p)
 		goto dso_load_cleanup;
 	}
 	if (ident[0] != 0x7f) {
-		printf("%s is not an ELF file\n", dso_p->path);
-		err = -1;
+		// printf("%s is not an ELF file\n", dso_p->path);
+		// err = -1;
 		goto dso_load_cleanup;
 	}
 	/* rewind fp */
@@ -523,8 +542,9 @@ int dso_load(struct dso *dso_p)
 			printf("Failed to parse elf file\n");
 		}
 	} else {
-		printf("32-bit ELF not supported\n");
-		err = -1;
+		// TODO: parse 32 bits
+		// printf("32-bit ELF not supported\n");
+		// err = -1;
 	}
 
 dso_load_cleanup:
@@ -592,8 +612,9 @@ int elf_parse(FILE *fp, struct dso *dso_p)
 	}
 
 	if (i >= num) {
-		printf("No program headers\n");
-		err = -1;
+		// printf("No program headers\n");
+		// err = -1;
+		err = 0;
 		goto elf_parse_err;
 	}
 
@@ -657,16 +678,21 @@ int elf_parse(FILE *fp, struct dso *dso_p)
 				if (fgets(fname, sizeof(fname), fp) == NULL)
 					continue;
 				faddr = faddr - p_vaddr + dso_p->offset;
-				dso_p->sym = realloc(dso_p->sym, sizeof(struct dso_sym) * (dso_p->length + 1));
-				if (dso_p->sym == NULL)  {
-					printf("Failed to add symbol to dso %s\n", dso_p->path);
-					err = -1;
-					goto elf_parse_cleanup;
+				if (dso_p->length + 1 > dso_p->capacity) {
+					unsigned int to_alloc = dso_p->capacity == 0 ? USYM_MIN_ALLOC : dso_p->capacity * 2;
+
+					dso_p->sym = realloc(dso_p->sym, sizeof(struct sym_map) * to_alloc);
+					if (dso_p->sym == NULL)  {
+						printf("Failed to add symbol to dso %s\n", dso_p->path);
+						err = -1;
+						goto elf_parse_cleanup;
+					}
+					dso_p->capacity = to_alloc;
 				}
-				struct dso_sym dso_sym_tmp = {
+				struct sym_map sym_map_tmp = {
 					.addr = faddr
 				};
-				dso_p->sym[dso_p->length] = dso_sym_tmp;
+				dso_p->sym[dso_p->length] = sym_map_tmp;
 				/* copy the name after assignment */
 				strcpy(dso_p->sym[dso_p->length].name, fname);
 				++dso_p->length;
