@@ -1,6 +1,8 @@
 ## sym.h
 
-Address symbolization C library in a single file.
+Address symbolization C library in a single file. 
+
+Currently only support ELF format.
 
 ### Usage
 
